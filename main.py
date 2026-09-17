@@ -1,24 +1,12 @@
 import pygame
+import typer
 
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
-FPS = 60
-BG_COLOR = "#006699"
-SPEED = 300
-
-TILE_SIZE = 64
-
-BULLET_SPEED = 700
-BULLET_RADIUS = 5
-FIRE_INTERVAL = 0.12
-
-MOB_MAX_HP = 100
-BULLET_DAMAGE = 25
+from config import Config
 
 SPAWN_ENEMY_EVENT = pygame.event.custom_type()
 
 
-def draw_mob(screen, image, pos, player_pos, hp, max_hp):
+def draw_mob(screen, image, pos, player_pos, hp, max_hp, tile_size):
     to_player = player_pos - pos
     if to_player.length_squared() > 0:
         direction = to_player.normalize()
@@ -32,8 +20,8 @@ def draw_mob(screen, image, pos, player_pos, hp, max_hp):
     image_rect = rotated_image.get_rect(center=pos)
     screen.blit(rotated_image, image_rect)
 
-    half = TILE_SIZE / 2
-    bar_width = TILE_SIZE
+    half = tile_size / 2
+    bar_width = tile_size
     bar_height = 6
     bar_x = pos.x - half
     bar_y = pos.y - half - 10
@@ -60,7 +48,40 @@ def tile_background(
     return bg_surface
 
 
-def main():
+CONFIG = Config.load_from_ini()
+
+
+def main(
+    width: int | None = typer.Option(None, "--width"),
+    height: int | None = typer.Option(None, "--height"),
+    fps: int | None = typer.Option(None, "--fps"),
+    speed: int | None = typer.Option(None, "--speed"),
+    tile_size: int | None = typer.Option(None, "--tile-size"),
+    bullet_speed: int | None = typer.Option(None, "--bullet-speed"),
+    bullet_damage: int | None = typer.Option(None, "--bullet-damage"),
+    fire_interval: int | None = typer.Option(None, "--fire-interval"),
+    mob_max_hp: int | None = typer.Option(None, "--mob-max-hp"),
+    gui_font_size: int | None = typer.Option(None, "--gui-font-size"),
+    gui_text_color: str | None = typer.Option(None, "--gui-text-color"),
+):
+    config = CONFIG.parse_cli(
+        window_width=width,
+        window_height=height,
+        fps=fps,
+        speed=speed,
+        tile_size=tile_size,
+        bullet_speed=bullet_speed,
+        bullet_damage=bullet_damage,
+        fire_interval=fire_interval,
+        mob_max_hp=mob_max_hp,
+        gui_font_size=gui_font_size,
+        gui_text_color=gui_text_color,
+    )
+
+    run_game(config)
+
+
+def run_game(config: Config):
     pygame.mixer.pre_init(
         frequency=44100,
         size=-16,
@@ -72,7 +93,9 @@ def main():
 
     pygame.mixer.set_num_channels(16)
 
-    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    screen = pygame.display.set_mode(
+        (config.window_width, config.window_height)
+    )
 
     pygame.display.set_caption("Sounds")
 
@@ -85,8 +108,10 @@ def main():
     bullets = []
     fire_cooldown = 0.0
 
-    mob_pos = pygame.Vector2(WINDOW_WIDTH * 0.75, WINDOW_HEIGHT // 2)
-    mob_hp = MOB_MAX_HP
+    mob_pos = pygame.Vector2(
+        config.window_width * 0.75, config.window_height // 2
+    )
+    mob_hp = config.mob_max_hp
 
     dt = 0
 
@@ -96,7 +121,9 @@ def main():
 
     score = 0
 
-    font = pygame.font.Font("fonts/BlackOpsOne-Regular.ttf", 24)
+    font = pygame.font.Font(
+        "fonts/BlackOpsOne-Regular.ttf", config.gui_font_size
+    )
 
     player_sprite_sheet = pygame.image.load(
         "images/character_sprite.svg"
@@ -117,7 +144,7 @@ def main():
             (i * FRAME_WIDTH, 0, FRAME_WIDTH, FRAME_HEIGHT),
         )
         frame_surface = pygame.transform.scale(
-            frame_surface, (TILE_SIZE, TILE_SIZE)
+            frame_surface, (config.tile_size, config.tile_size)
         )
         frames.append(frame_surface)
 
@@ -126,12 +153,16 @@ def main():
     ANIMATION_SPEED = 150
 
     zombie_image = pygame.image.load("images/zombie.svg").convert_alpha()
-    zombie_image = pygame.transform.scale(zombie_image, (TILE_SIZE, TILE_SIZE))
+    zombie_image = pygame.transform.scale(
+        zombie_image, (config.tile_size, config.tile_size)
+    )
 
     bullet_image = pygame.image.load("images/bullet.svg").convert_alpha()
 
     land_image = pygame.image.load("images/land.svg").convert_alpha()
-    background = tile_background(land_image, WINDOW_WIDTH, WINDOW_HEIGHT)
+    background = tile_background(
+        land_image, config.window_width, config.window_height
+    )
 
     crosshair_image = pygame.image.load("images/crosshair.svg").convert_alpha()
     crosshair_image = pygame.transform.scale2x(crosshair_image)
@@ -164,7 +195,7 @@ def main():
                 case SPAWN_ENEMY_EVENT:
                     if mob_hp == -1:
                         zombie_sound.play()
-                        mob_hp = MOB_MAX_HP
+                        mob_hp = config.mob_max_hp
 
         keys = pygame.key.get_pressed()
 
@@ -182,7 +213,7 @@ def main():
         if move.length_squared() > 0:
             move.normalize_ip()
 
-        player_pos += move * SPEED * dt
+        player_pos += move * config.speed * dt
 
         to_mouse = mouse_pos - player_pos
 
@@ -205,27 +236,30 @@ def main():
                         "dir": pygame.Vector2(direction),
                     }
                 )
-                fire_cooldown = FIRE_INTERVAL
+                fire_cooldown = config.fire_interval
         else:
             fire_cooldown = 0.0
 
         screen_rect = screen.get_rect().inflate(40, 40)
         mob_rect = None
         if mob_hp > 0:
-            half = TILE_SIZE / 2
+            half = config.tile_size / 2
             mob_rect = pygame.Rect(
-                mob_pos.x - half, mob_pos.y - half, TILE_SIZE, TILE_SIZE
+                mob_pos.x - half,
+                mob_pos.y - half,
+                config.tile_size,
+                config.tile_size,
             )
 
         for bullet in bullets[:]:
-            bullet["pos"] += bullet["dir"] * BULLET_SPEED * dt
+            bullet["pos"] += bullet["dir"] * config.bullet_speed * dt
 
             if not screen_rect.collidepoint(bullet["pos"]):
                 bullets.remove(bullet)
                 continue
 
             if mob_rect and mob_rect.collidepoint(bullet["pos"]):
-                mob_hp = max(mob_hp - BULLET_DAMAGE, 0)
+                mob_hp = max(mob_hp - config.bullet_damage, 0)
                 bullets.remove(bullet)
 
                 impact_sound.play()
@@ -267,11 +301,17 @@ def main():
 
         if mob_hp > 0:
             draw_mob(
-                screen, zombie_image, mob_pos, player_pos, mob_hp, MOB_MAX_HP
+                screen,
+                zombie_image,
+                mob_pos,
+                player_pos,
+                mob_hp,
+                config.mob_max_hp,
+                config.tile_size,
             )
 
         score_text = font.render(
-            f"Score: {score}", antialias=False, color="#006699"
+            f"Score: {score}", antialias=False, color=config.gui_text_color
         )
         score_rect = score_text.get_rect(left=0, top=0)
         screen.blit(score_text, score_rect)
@@ -281,10 +321,10 @@ def main():
 
         pygame.display.flip()
 
-        dt = clock.tick(FPS) / 1000
+        dt = clock.tick(config.fps) / 1000
 
     pygame.quit()
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
