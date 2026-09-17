@@ -3,52 +3,89 @@ import typer
 
 from config import Config
 
-SPAWN_ENEMY_EVENT = pygame.event.custom_type()
+FRAME_COUNT = 8
+ANIMATION_SPEED_MS = 150
+BULLET_SPAWN_OFFSET = 32
+MOB_SPAWN_DELAY_MS = 3000
+MOB_HP_DEAD = -1
+HP_BAR_HEIGHT = 6
+HP_BAR_OFFSET = 10
+BULLET_SCREEN_MARGIN = 40
+
+CONFIG = Config.load_from_ini()
 
 
-def draw_mob(screen, image, pos, player_pos, hp, max_hp, tile_size):
-    to_player = player_pos - pos
-    if to_player.length_squared() > 0:
-        direction = to_player.normalize()
-    else:
-        direction = pygame.Vector2(1, 0)
+def get_movement_direction(keys: pygame.key.ScancodeWrapper) -> pygame.Vector2:
+    move = pygame.Vector2()
 
-    angle = -direction.as_polar()[1]
-    rotation_angle = angle - 90
+    if keys[pygame.K_w] or keys[pygame.K_UP]:
+        move.y -= 1
+    if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+        move.y += 1
+    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+        move.x -= 1
+    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+        move.x += 1
 
-    rotated_image = pygame.transform.rotate(image, rotation_angle)
-    image_rect = rotated_image.get_rect(center=pos)
-    screen.blit(rotated_image, image_rect)
+    if move.length_squared() > 0:
+        move.normalize_ip()
 
-    half = tile_size / 2
-    bar_width = tile_size
-    bar_height = 6
-    bar_x = pos.x - half
-    bar_y = pos.y - half - 10
+    return move
 
-    pygame.draw.rect(screen, "#330000", (bar_x, bar_y, bar_width, bar_height))
-    if hp > 0:
-        fill_width = int(bar_width * hp / max_hp)
-        pygame.draw.rect(
-            screen, "#fa5252", (bar_x, bar_y, fill_width, bar_height)
+
+def aim_direction(
+    from_pos: pygame.Vector2, to_pos: pygame.Vector2
+) -> pygame.Vector2:
+    to_target = to_pos - from_pos
+    if to_target.length_squared():
+        return to_target.normalize()
+    return pygame.Vector2(1, 0)
+
+
+def direction_to_angle(direction: pygame.Vector2) -> float:
+    return -direction.as_polar()[1]
+
+
+def load_sprite_frames(
+    sprite_sheet: pygame.Surface, frame_count: int, tile_size: int
+) -> list[pygame.Surface]:
+    frame_width = sprite_sheet.get_width() // frame_count
+    frame_height = sprite_sheet.get_height()
+    frames = []
+
+    for i in range(frame_count):
+        frame_surface = pygame.Surface(
+            (frame_width, frame_height), pygame.SRCALPHA
         )
+        frame_surface.blit(
+            sprite_sheet,
+            (0, 0),
+            (i * frame_width, 0, frame_width, frame_height),
+        )
+        frames.append(
+            pygame.transform.scale(frame_surface, (tile_size, tile_size))
+        )
+
+    return frames
 
 
 def tile_background(
-    land_image: pygame.Surface, screen_width: int, screen_height: int
+    land_image: pygame.Surface, width: int, height: int
 ) -> pygame.Surface:
-    bg_surface = pygame.Surface((screen_width, screen_height))
+    bg_surface = pygame.Surface((width, height))
     tile_w = land_image.get_width()
     tile_h = land_image.get_height()
 
-    for y in range(0, screen_height, tile_h):
-        for x in range(0, screen_width, tile_w):
+    for y in range(0, height, tile_h):
+        for x in range(0, width, tile_w):
             bg_surface.blit(land_image, (x, y))
 
     return bg_surface
 
 
-CONFIG = Config.load_from_ini()
+def mob_rect(pos: pygame.Vector2, tile_size: int) -> pygame.Rect:
+    half = tile_size / 2
+    return pygame.Rect(pos.x - half, pos.y - half, tile_size, tile_size)
 
 
 def main(
@@ -81,249 +118,274 @@ def main(
     run_game(config)
 
 
-def run_game(config: Config):
-    pygame.mixer.pre_init(
-        frequency=44100,
-        size=-16,
-        channels=2,
-        buffer=512,
-        allowedchanges=pygame.AUDIO_ALLOW_ANY_CHANGE,
-    )
-    pygame.init()
+class Game:
+    def __init__(self, config: Config):
+        self.running = False
+        self.config = config
 
-    pygame.mixer.set_num_channels(16)
-
-    screen = pygame.display.set_mode(
-        (config.window_width, config.window_height)
-    )
-
-    pygame.display.set_caption("Sounds")
-
-    clock = pygame.time.Clock()
-
-    player_pos = pygame.Vector2(screen.get_rect().center)
-
-    mouse_pos = pygame.Vector2()
-
-    bullets = []
-    fire_cooldown = 0.0
-
-    mob_pos = pygame.Vector2(
-        config.window_width * 0.75, config.window_height // 2
-    )
-    mob_hp = config.mob_max_hp
-
-    dt = 0
-
-    running = True
-
-    is_left_mouse = False
-
-    score = 0
-
-    font = pygame.font.Font(
-        "fonts/BlackOpsOne-Regular.ttf", config.gui_font_size
-    )
-
-    player_sprite_sheet = pygame.image.load(
-        "images/character_sprite.svg"
-    ).convert_alpha()
-
-    FRAME_COUNT = 8
-    FRAME_WIDTH = player_sprite_sheet.get_width() // FRAME_COUNT
-    FRAME_HEIGHT = player_sprite_sheet.get_height()
-
-    frames = []
-    for i in range(FRAME_COUNT):
-        frame_surface = pygame.Surface(
-            (FRAME_WIDTH, FRAME_HEIGHT), pygame.SRCALPHA
+    def __enter__(self):
+        pygame.mixer.pre_init(
+            frequency=44100,
+            size=-16,
+            channels=2,
+            buffer=512,
+            allowedchanges=pygame.AUDIO_ALLOW_ANY_CHANGE,
         )
-        frame_surface.blit(
-            player_sprite_sheet,
-            (0, 0),
-            (i * FRAME_WIDTH, 0, FRAME_WIDTH, FRAME_HEIGHT),
+        pygame.init()
+        pygame.mixer.set_num_channels(16)
+
+        self.SPAWN_ENEMY_EVENT = pygame.event.custom_type()
+
+        self.screen = pygame.display.set_mode(
+            (self.config.window_width, self.config.window_height)
         )
-        frame_surface = pygame.transform.scale(
-            frame_surface, (config.tile_size, config.tile_size)
+        pygame.display.set_caption("OOP Shooter")
+
+        self.clock = pygame.time.Clock()
+        self.screen_bounds = self.screen.get_rect().inflate(
+            BULLET_SCREEN_MARGIN, BULLET_SCREEN_MARGIN
         )
-        frames.append(frame_surface)
 
-    current_frame = 0
-    animation_timer = 0
-    ANIMATION_SPEED = 150
+        self.player_pos = pygame.Vector2(self.screen.get_rect().center)
+        self.mouse_pos = pygame.Vector2()
+        self.bullets: list[dict[str, pygame.Vector2]] = []
+        self.fire_cooldown = 0.0
+        self.mob_pos = pygame.Vector2(
+            self.config.window_width * 0.75, self.config.window_height // 2
+        )
+        self.mob_hp = self.config.mob_max_hp
+        self.dt = 0.0
+        self.is_left_mouse = False
+        self.score = 0
+        self.keys = pygame.key.get_pressed()
 
-    zombie_image = pygame.image.load("images/zombie.svg").convert_alpha()
-    zombie_image = pygame.transform.scale(
-        zombie_image, (config.tile_size, config.tile_size)
-    )
+        self._load_font()
+        self._load_images()
+        self._load_sounds()
 
-    bullet_image = pygame.image.load("images/bullet.svg").convert_alpha()
+        self.current_frame = 0
+        self.animation_timer = 0
+        self.was_moving = False
+        self.running = True
 
-    land_image = pygame.image.load("images/land.svg").convert_alpha()
-    background = tile_background(
-        land_image, config.window_width, config.window_height
-    )
+        return self
 
-    crosshair_image = pygame.image.load("images/crosshair.svg").convert_alpha()
-    crosshair_image = pygame.transform.scale2x(crosshair_image)
-    pygame.mouse.set_visible(False)
+    def __exit__(self, *args):
+        pygame.quit()
 
-    shot_sound = pygame.mixer.Sound("sounds/shot.wav")
-    impact_sound = pygame.mixer.Sound("sounds/impact.wav")
-    zombie_sound = pygame.mixer.Sound("sounds/zombie.wav")
+    def _load_font(self) -> None:
+        self.font = pygame.font.Font(
+            "fonts/BlackOpsOne-Regular.ttf", self.config.gui_font_size
+        )
 
-    footsteps_sound = pygame.mixer.Sound("sounds/footsteps.wav")
+    def _load_images(self) -> None:
+        player_sprite_sheet = pygame.image.load(
+            "images/character_sprite.svg"
+        ).convert_alpha()
+        self.frames = load_sprite_frames(
+            player_sprite_sheet, FRAME_COUNT, self.config.tile_size
+        )
 
-    pygame.mixer.music.load("sounds/theme.wav")
-    pygame.mixer.music.play(-1)
+        self.zombie_image = pygame.transform.scale(
+            pygame.image.load("images/zombie.svg").convert_alpha(),
+            (self.config.tile_size, self.config.tile_size),
+        )
+        self.bullet_image = pygame.image.load(
+            "images/bullet.svg"
+        ).convert_alpha()
 
-    was_moving = False
+        land_image = pygame.image.load("images/land.svg").convert_alpha()
+        self.background = tile_background(
+            land_image, self.config.window_width, self.config.window_height
+        )
 
-    while running:
+        self.crosshair_image = pygame.transform.scale2x(
+            pygame.image.load("images/crosshair.svg").convert_alpha()
+        )
+        pygame.mouse.set_visible(False)
+
+    def _load_sounds(self) -> None:
+        self.shot_sound = pygame.mixer.Sound("sounds/shot.wav")
+        self.impact_sound = pygame.mixer.Sound("sounds/impact.wav")
+        self.zombie_sound = pygame.mixer.Sound("sounds/zombie.wav")
+        self.footsteps_sound = pygame.mixer.Sound("sounds/footsteps.wav")
+
+        pygame.mixer.music.load("sounds/theme.wav")
+        pygame.mixer.music.play(-1)
+
+    def run(self):
+        while self.running:
+            self.dt = self.clock.tick(self.config.fps) / 1000
+            self.watch_for_events()
+            self.update()
+            self.draw()
+
+    def watch_for_events(self):
         for event in pygame.event.get():
             match event.type:
                 case pygame.QUIT:
-                    running = False
+                    self.running = False
                 case pygame.MOUSEMOTION:
-                    mouse_pos = pygame.Vector2(event.pos)
+                    self.mouse_pos = pygame.Vector2(event.pos)
                 case pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
-                        is_left_mouse = True
+                        self.is_left_mouse = True
                 case pygame.MOUSEBUTTONUP:
                     if event.button == 1:
-                        is_left_mouse = False
-                case SPAWN_ENEMY_EVENT:
-                    if mob_hp == -1:
-                        zombie_sound.play()
-                        mob_hp = config.mob_max_hp
+                        self.is_left_mouse = False
+                case self.SPAWN_ENEMY_EVENT:
+                    if self.mob_hp == MOB_HP_DEAD:
+                        self.zombie_sound.play()
+                        self.mob_hp = self.config.mob_max_hp
 
-        keys = pygame.key.get_pressed()
+        self.keys = pygame.key.get_pressed()
 
-        move = pygame.Vector2()
+    def update(self):
+        move = get_movement_direction(self.keys)
+        self.player_pos += move * self.config.speed * self.dt
 
-        if keys[pygame.K_w]:
-            move.y -= 1
-        if keys[pygame.K_s]:
-            move.y += 1
-        if keys[pygame.K_a]:
-            move.x -= 1
-        if keys[pygame.K_d]:
-            move.x += 1
+        direction = aim_direction(self.player_pos, self.mouse_pos)
+        angle = direction_to_angle(direction)
 
-        if move.length_squared() > 0:
-            move.normalize_ip()
-
-        player_pos += move * config.speed * dt
-
-        to_mouse = mouse_pos - player_pos
-
-        if to_mouse.length_squared():
-            direction = to_mouse.normalize()
-        else:
-            direction = pygame.Vector2(1, 0)
-
-        angle = -direction.as_polar()[1]
-
-        bullet_pos = player_pos + direction * 32
-
-        if is_left_mouse:
-            fire_cooldown -= dt
-            if fire_cooldown <= 0:
-                shot_sound.play()
-                bullets.append(
+        if self.is_left_mouse:
+            self.fire_cooldown -= self.dt
+            if self.fire_cooldown <= 0:
+                self.shot_sound.play()
+                self.bullets.append(
                     {
-                        "pos": pygame.Vector2(bullet_pos),
+                        "pos": self.player_pos
+                        + direction * BULLET_SPAWN_OFFSET,
                         "dir": pygame.Vector2(direction),
                     }
                 )
-                fire_cooldown = config.fire_interval
+                self.fire_cooldown = self.config.fire_interval
         else:
-            fire_cooldown = 0.0
+            self.fire_cooldown = 0.0
 
-        screen_rect = screen.get_rect().inflate(40, 40)
-        mob_rect = None
-        if mob_hp > 0:
-            half = config.tile_size / 2
-            mob_rect = pygame.Rect(
-                mob_pos.x - half,
-                mob_pos.y - half,
-                config.tile_size,
-                config.tile_size,
-            )
+        current_mob_rect = (
+            mob_rect(self.mob_pos, self.config.tile_size)
+            if self.mob_hp > 0
+            else None
+        )
+        self.bullets = self._update_bullets(current_mob_rect)
 
-        for bullet in bullets[:]:
-            bullet["pos"] += bullet["dir"] * config.bullet_speed * dt
+        self._update_footsteps(move)
+        self._update_animation(move)
 
-            if not screen_rect.collidepoint(bullet["pos"]):
-                bullets.remove(bullet)
+        self.player = pygame.transform.rotate(
+            self.frames[self.current_frame], angle - 90
+        )
+        self.player_rect = self.player.get_rect(center=self.player_pos)
+        self.crosshair_rect = self.crosshair_image.get_rect(
+            center=self.mouse_pos
+        )
+
+    def _update_bullets(
+        self, current_mob_rect: pygame.Rect | None
+    ) -> list[dict[str, pygame.Vector2]]:
+        remaining_bullets = []
+
+        for bullet in self.bullets:
+            bullet["pos"] += bullet["dir"] * self.config.bullet_speed * self.dt
+
+            if not self.screen_bounds.collidepoint(bullet["pos"]):
                 continue
 
-            if mob_rect and mob_rect.collidepoint(bullet["pos"]):
-                mob_hp = max(mob_hp - config.bullet_damage, 0)
-                bullets.remove(bullet)
+            if current_mob_rect and current_mob_rect.collidepoint(
+                bullet["pos"]
+            ):
+                self.mob_hp = max(self.mob_hp - self.config.bullet_damage, 0)
+                self.impact_sound.play()
 
-                impact_sound.play()
+                if self.mob_hp == 0:
+                    self.score += 1
+                    pygame.time.set_timer(
+                        self.SPAWN_ENEMY_EVENT, MOB_SPAWN_DELAY_MS, loops=1
+                    )
+                    self.mob_hp = MOB_HP_DEAD
+                continue
 
-                if mob_hp == 0:
-                    score += 1
-                    pygame.time.set_timer(SPAWN_ENEMY_EVENT, 3000, loops=1)
-                    mob_hp = -1
+            remaining_bullets.append(bullet)
 
-        screen.blit(background, (0, 0))
+        return remaining_bullets
 
+    def _update_footsteps(self, move: pygame.Vector2) -> None:
         is_moving = move.length_squared() > 0
 
-        if is_moving and not was_moving:
-            footsteps_sound.play(-1)
-        elif not is_moving and was_moving:
-            footsteps_sound.stop()
+        if is_moving and not self.was_moving:
+            self.footsteps_sound.play(-1)
+        elif not is_moving and self.was_moving:
+            self.footsteps_sound.stop()
 
-        was_moving = is_moving
+        self.was_moving = is_moving
 
-        if is_moving:
-            animation_timer += dt * 1000
-            if animation_timer >= ANIMATION_SPEED:
-                animation_timer = 0
-                current_frame = (current_frame + 1) % FRAME_COUNT
+    def _update_animation(self, move: pygame.Vector2) -> None:
+        if move.length_squared() > 0:
+            self.animation_timer += self.dt * 1000
+            if self.animation_timer >= ANIMATION_SPEED_MS:
+                self.animation_timer = 0
+                self.current_frame = (self.current_frame + 1) % FRAME_COUNT
         else:
-            current_frame = 0
+            self.current_frame = 0
 
-        player = frames[current_frame]
-        player = pygame.transform.rotate(player, angle - 90)
-        player_rect = player.get_rect(center=player_pos)
-        screen.blit(player, player_rect)
+    def display_hud(self):
+        score_text = self.font.render(
+            f"Score: {self.score}",
+            antialias=False,
+            color=self.config.gui_text_color,
+        )
+        self.screen.blit(score_text, score_text.get_rect(left=0, top=0))
 
-        for bullet in bullets:
+    def draw(self):
+        self.screen.blit(self.background, (0, 0))
+        self.display_hud()
+        self.screen.blit(self.player, self.player_rect)
+
+        for bullet in self.bullets:
             phi = bullet["dir"].as_polar()[1]
-            rotated_bullet = pygame.transform.rotate(bullet_image, -phi - 90)
-            bullet_rect = rotated_bullet.get_rect(center=bullet["pos"])
-            screen.blit(rotated_bullet, bullet_rect)
-
-        if mob_hp > 0:
-            draw_mob(
-                screen,
-                zombie_image,
-                mob_pos,
-                player_pos,
-                mob_hp,
-                config.mob_max_hp,
-                config.tile_size,
+            rotated_bullet = pygame.transform.rotate(
+                self.bullet_image, -phi - 90
+            )
+            self.screen.blit(
+                rotated_bullet,
+                rotated_bullet.get_rect(center=bullet["pos"]),
             )
 
-        score_text = font.render(
-            f"Score: {score}", antialias=False, color=config.gui_text_color
-        )
-        score_rect = score_text.get_rect(left=0, top=0)
-        screen.blit(score_text, score_rect)
+        if self.mob_hp > 0:
+            self.draw_mob(self.mob_pos, self.mob_hp)
 
-        crosshair_rect = crosshair_image.get_rect(center=mouse_pos)
-        screen.blit(crosshair_image, crosshair_rect)
-
+        self.screen.blit(self.crosshair_image, self.crosshair_rect)
         pygame.display.flip()
 
-        dt = clock.tick(config.fps) / 1000
+    def draw_mob(self, pos: pygame.Vector2, hp: int):
+        direction = aim_direction(pos, self.player_pos)
+        rotation_angle = direction_to_angle(direction) - 90
 
-    pygame.quit()
+        rotated_image = pygame.transform.rotate(
+            self.zombie_image, rotation_angle
+        )
+        self.screen.blit(rotated_image, rotated_image.get_rect(center=pos))
+
+        half = self.config.tile_size / 2
+        bar_width = self.config.tile_size
+        bar_x = pos.x - half
+        bar_y = pos.y - half - HP_BAR_OFFSET
+
+        pygame.draw.rect(
+            self.screen, "#330000", (bar_x, bar_y, bar_width, HP_BAR_HEIGHT)
+        )
+        if hp > 0:
+            fill_width = int(bar_width * hp / self.config.mob_max_hp)
+            pygame.draw.rect(
+                self.screen,
+                "#fa5252",
+                (bar_x, bar_y, fill_width, HP_BAR_HEIGHT),
+            )
+
+
+def run_game(config: Config):
+    with Game(config) as game:
+        game.run()
 
 
 if __name__ == "__main__":
