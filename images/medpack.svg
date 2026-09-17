@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="63.983208"
+   height="63.983208"
+   viewBox="0 0 16.92889 16.92889"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px">
+    <inkscape:page
+       x="0"
+       y="0"
+       width="16.92889"
+       height="16.92889"
+       id="page2"
+       margin="0"
+       bleed="0" />
+  </sodipodi:namedview>
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:none;stroke:none;stroke-width:0.00444349;stroke-linecap:round;stroke-linejoin:round"
+       id="rect1"
+       width="16.92889"
+       height="16.92889"
+       x="0"
+       y="0" />
+    <rect
+       style="fill:#ececec;stroke:#d35f5f;stroke-width:0.262515;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
+       id="rect2"
+       width="16.666376"
+       height="10.585402"
+       x="0.1312574"
+       y="3.1717446" />
+    <rect
+       style="fill:#d35f5f;fill-opacity:1;stroke:none;stroke-width:0.250215;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
+       id="rect3"
+       width="2.6458333"
+       height="6.614583"
+       x="7.1415286"
+       y="5.1571531" />
+    <rect
+       style="fill:#d35f5f;fill-opacity:1;stroke:none;stroke-width:0.250215;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
+       id="rect4"
+       width="2.6458333"
+       height="6.614583"
+       x="7.1415281"
+       y="-11.771737"
+       transform="rotate(90)" />
+  </g>
+</svg>

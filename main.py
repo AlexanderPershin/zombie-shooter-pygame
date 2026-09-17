@@ -7,6 +7,7 @@ import utils
 from config import Config
 from enemies import Mob
 from guns import Gun
+from items import Item, Medpack
 from player import FRAME_COUNT, Player
 
 MOB_SPAWN_DELAY_MS = 3000
@@ -78,9 +79,9 @@ class Game:
         )
 
         self.mouse_pos = pygame.Vector2()
-        self.bullets: list[dict[str, pygame.Vector2]] = []
 
         self.enemies: list[Mob] = []
+        self.items: list[Item] = []
 
         self.dt = 0.0
         self.is_left_mouse = False
@@ -156,6 +157,10 @@ class Game:
         self.background = utils.tile_background(
             land_images, self.config.window_width, self.config.window_height
         )
+
+        self.medpack_image = pygame.image.load(
+            "images/medpack.svg"
+        ).convert_alpha()
 
         self.crosshair_image = pygame.transform.scale2x(
             pygame.image.load("images/crosshair.svg").convert_alpha()
@@ -259,6 +264,11 @@ class Game:
             self.is_wheel_down = False
             self.is_reload = False
 
+        for item in self.items[:]:
+            is_used = item.use(self.player)
+            if is_used:
+                self.items.remove(item)
+
         for enemy in self.enemies:
             self.player.hit(enemy.rect, self.config.bullet_damage)
 
@@ -277,6 +287,12 @@ class Game:
 
                 if not enemy.is_alive:
                     self.score += 1
+
+                    n = random.randint(0, 4)
+                    if n == 2:
+                        medpack = Medpack(self.medpack_image, enemy.pos, 25)
+                        self.items.append(medpack)
+
                     self.enemies.remove(enemy)
 
                 if not self.enemies:
@@ -335,6 +351,9 @@ class Game:
 
         if not self.game_over:
             self.player.draw(self.screen)
+
+        for item in self.items:
+            item.draw(self.screen)
 
         for enemy in self.enemies:
             enemy.draw(self.screen)
