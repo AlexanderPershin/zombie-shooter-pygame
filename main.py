@@ -6,45 +6,34 @@ FPS = 60
 BG_COLOR = "#006699"
 SPEED = 300
 
-GUN_WIDTH = 50
-GUN_HEIGHT = 16
+TILE_SIZE = 64
 
 BULLET_SPEED = 700
 BULLET_RADIUS = 5
 FIRE_INTERVAL = 0.12
 
-MOB_SIZE = 60
 MOB_MAX_HP = 100
 BULLET_DAMAGE = 25
 
 SPAWN_ENEMY_EVENT = pygame.event.custom_type()
 
 
-def create_gun():
-    gun = pygame.Surface((GUN_WIDTH, GUN_HEIGHT), pygame.SRCALPHA)
+def draw_mob(screen, image, pos, player_pos, hp, max_hp):
+    to_player = player_pos - pos
+    if to_player.length_squared() > 0:
+        direction = to_player.normalize()
+    else:
+        direction = pygame.Vector2(1, 0)
 
-    pygame.draw.rect(
-        gun,
-        "#cfd4d9",
-        (0, 2, GUN_WIDTH, GUN_HEIGHT - 4),
-        border_radius=3,
-    )
+    angle = -direction.as_polar()[1]
+    rotation_angle = angle - 90
 
-    pygame.draw.rect(
-        gun,
-        "#43464b",
-        (GUN_WIDTH - 8, 0, 6, 3),
-    )
+    rotated_image = pygame.transform.rotate(image, rotation_angle)
+    image_rect = rotated_image.get_rect(center=pos)
+    screen.blit(rotated_image, image_rect)
 
-    return gun
-
-
-def draw_mob(screen, pos, hp, max_hp):
-    half = MOB_SIZE / 2
-    mob_rect = pygame.Rect(pos.x - half, pos.y - half, MOB_SIZE, MOB_SIZE)
-    pygame.draw.rect(screen, "#cc4444", mob_rect)
-
-    bar_width = MOB_SIZE
+    half = TILE_SIZE / 2
+    bar_width = TILE_SIZE
     bar_height = 6
     bar_x = pos.x - half
     bar_y = pos.y - half - 10
@@ -53,8 +42,22 @@ def draw_mob(screen, pos, hp, max_hp):
     if hp > 0:
         fill_width = int(bar_width * hp / max_hp)
         pygame.draw.rect(
-            screen, "#00cc00", (bar_x, bar_y, fill_width, bar_height)
+            screen, "#fa5252", (bar_x, bar_y, fill_width, bar_height)
         )
+
+
+def tile_background(
+    land_image: pygame.Surface, screen_width: int, screen_height: int
+) -> pygame.Surface:
+    bg_surface = pygame.Surface((screen_width, screen_height))
+    tile_w = land_image.get_width()
+    tile_h = land_image.get_height()
+
+    for y in range(0, screen_height, tile_h):
+        for x in range(0, screen_width, tile_w):
+            bg_surface.blit(land_image, (x, y))
+
+    return bg_surface
 
 
 def main():
@@ -62,15 +65,13 @@ def main():
 
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 
-    pygame.display.set_caption("Mouse events")
+    pygame.display.set_caption("Images")
 
     clock = pygame.time.Clock()
 
     player_pos = pygame.Vector2(screen.get_rect().center)
 
     mouse_pos = pygame.Vector2()
-
-    gun_source = create_gun()
 
     bullets = []
     fire_cooldown = 0.0
@@ -84,13 +85,20 @@ def main():
 
     is_left_mouse = False
 
-    is_lazer = False
-    lazer_colors = ["red", "green", "blue"]
-    lazer_index = 0
-
     score = 0
 
-    font = pygame.font.SysFont(None, 48)
+    font = pygame.font.Font("fonts/BlackOpsOne-Regular.ttf", 24)
+
+    player_image = pygame.image.load("images/character.svg").convert_alpha()
+    player_image = pygame.transform.scale(player_image, (TILE_SIZE, TILE_SIZE))
+
+    zombie_image = pygame.image.load("images/zombie.svg").convert_alpha()
+    zombie_image = pygame.transform.scale(zombie_image, (TILE_SIZE, TILE_SIZE))
+
+    bullet_image = pygame.image.load("images/bullet.svg").convert_alpha()
+
+    land_image = pygame.image.load("images/land.svg").convert_alpha()
+    background = tile_background(land_image, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while running:
         for event in pygame.event.get():
@@ -102,24 +110,12 @@ def main():
                 case pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
                         is_left_mouse = True
-                    if event.button == 2:
-                        is_lazer = not is_lazer
-                    if event.button == 4:
-                        lazer_index -= 1
-                        if lazer_index == -1:
-                            lazer_index = len(lazer_colors) - 1
-                    if event.button == 5:
-                        lazer_index += 1
-                        if lazer_index == len(lazer_colors):
-                            lazer_index = 0
                 case pygame.MOUSEBUTTONUP:
                     if event.button == 1:
                         is_left_mouse = False
                 case SPAWN_ENEMY_EVENT:
                     if mob_hp == -1:
                         mob_hp = MOB_MAX_HP
-
-        lazer_color = lazer_colors[lazer_index]
 
         keys = pygame.key.get_pressed()
 
@@ -148,17 +144,14 @@ def main():
 
         angle = -direction.as_polar()[1]
 
-        rotated_gun = pygame.transform.rotate(gun_source, angle)
-        gun_center = player_pos + direction * (GUN_WIDTH / 2)
-        gun_rect = rotated_gun.get_rect(center=gun_center)
-        muzzle_pos = player_pos + direction * GUN_WIDTH
+        bullet_pos = player_pos + direction * 32
 
         if is_left_mouse:
             fire_cooldown -= dt
             if fire_cooldown <= 0:
                 bullets.append(
                     {
-                        "pos": pygame.Vector2(muzzle_pos),
+                        "pos": pygame.Vector2(bullet_pos),
                         "dir": pygame.Vector2(direction),
                     }
                 )
@@ -169,9 +162,9 @@ def main():
         screen_rect = screen.get_rect().inflate(40, 40)
         mob_rect = None
         if mob_hp > 0:
-            half = MOB_SIZE / 2
+            half = TILE_SIZE / 2
             mob_rect = pygame.Rect(
-                mob_pos.x - half, mob_pos.y - half, MOB_SIZE, MOB_SIZE
+                mob_pos.x - half, mob_pos.y - half, TILE_SIZE, TILE_SIZE
             )
 
         for bullet in bullets[:]:
@@ -196,29 +189,26 @@ def main():
                     )
                     mob_hp = -1
 
-        screen.fill(BG_COLOR)
+        screen.blit(background, (0, 0))
 
-        pygame.draw.circle(screen, "#009900", player_pos, 50)
+        player = pygame.transform.rotate(player_image, angle - 90)
+        player_rect = player_image.get_rect(center=player_pos)
 
-        screen.blit(rotated_gun, gun_rect)
+        screen.blit(player, player_rect)
 
         for bullet in bullets:
-            pygame.draw.circle(screen, "#fa5252", bullet["pos"], BULLET_RADIUS)
+            phi = bullet["dir"].as_polar()[1]
+            rotated_bullet = pygame.transform.rotate(bullet_image, -phi - 90)
+            bullet_rect = rotated_bullet.get_rect(center=bullet["pos"])
+            screen.blit(rotated_bullet, bullet_rect)
 
         if mob_hp > 0:
-            draw_mob(screen, mob_pos, mob_hp, MOB_MAX_HP)
-
-        if is_lazer and to_mouse.length_squared() > 2500:
-            pygame.draw.line(
-                screen,
-                lazer_color,
-                muzzle_pos,
-                mouse_pos,
-                3,
+            draw_mob(
+                screen, zombie_image, mob_pos, player_pos, mob_hp, MOB_MAX_HP
             )
 
         score_text = font.render(
-            f"Score: {score}", antialias=False, color="white"
+            f"Score: {score}", antialias=False, color="#006699"
         )
         score_rect = score_text.get_rect(left=0, top=0)
         screen.blit(score_text, score_rect)
