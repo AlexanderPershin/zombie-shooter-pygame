@@ -5,7 +5,7 @@ WINDOW_HEIGHT = 600
 FPS = 60
 BG_COLOR = "#006699"
 
-SPEED = 5
+SPEED = 300
 
 
 def main():
@@ -15,11 +15,11 @@ def main():
 
     pygame.display.set_caption("Keyboard events")
 
-    player_x, player_y = screen.get_rect().center
-
-    keys_pressed = set()
+    player_pos = pygame.Vector2(screen.get_rect().center)
 
     clock = pygame.Clock()
+
+    dt = 0
 
     running = True
 
@@ -28,33 +28,32 @@ def main():
             match event.type:
                 case pygame.QUIT:
                     running = False
-                case pygame.KEYDOWN:
-                    keys_pressed.add(event.key)
-                case pygame.KEYUP:
-                    keys_pressed.discard(event.key)
 
         screen.fill(BG_COLOR)
 
-        dx, dy = 0, 0
-        if pygame.K_a in keys_pressed:
-            dx -= 1
-        if pygame.K_d in keys_pressed:
-            dx += 1
-        if pygame.K_w in keys_pressed:
-            dy -= 1
-        if pygame.K_s in keys_pressed:
-            dy += 1
+        pygame.draw.circle(screen, "#009900", player_pos, 50)
 
-        player_x += dx * SPEED
-        player_y += dy * SPEED
+        keys = pygame.key.get_pressed()
 
-        pygame.draw.circle(
-            screen, "#009900", (int(player_x), int(player_y)), 50
-        )
+        direction = pygame.Vector2(0, 0)
+
+        if keys[pygame.K_w]:
+            direction.y -= 1
+        if keys[pygame.K_s]:
+            direction.y += 1
+        if keys[pygame.K_a]:
+            direction.x -= 1
+        if keys[pygame.K_d]:
+            direction.x += 1
+
+        if direction.length_squared() > 0:
+            direction.normalize_ip()
+
+        player_pos += direction * SPEED * dt
 
         pygame.display.flip()
 
-        clock.tick(FPS)
+        dt = clock.tick(FPS) / 1000
 
     pygame.quit()
 
