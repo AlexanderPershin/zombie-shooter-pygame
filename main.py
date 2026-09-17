@@ -65,7 +65,7 @@ def main():
 
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 
-    pygame.display.set_caption("Images")
+    pygame.display.set_caption("Mouse events")
 
     clock = pygame.time.Clock()
 
@@ -89,8 +89,32 @@ def main():
 
     font = pygame.font.Font("fonts/BlackOpsOne-Regular.ttf", 24)
 
-    player_image = pygame.image.load("images/character.svg").convert_alpha()
-    player_image = pygame.transform.scale(player_image, (TILE_SIZE, TILE_SIZE))
+    player_sprite_sheet = pygame.image.load(
+        "images/character_sprite.svg"
+    ).convert_alpha()
+
+    FRAME_COUNT = 8
+    FRAME_WIDTH = player_sprite_sheet.get_width() // FRAME_COUNT
+    FRAME_HEIGHT = player_sprite_sheet.get_height()
+
+    frames = []
+    for i in range(FRAME_COUNT):
+        frame_surface = pygame.Surface(
+            (FRAME_WIDTH, FRAME_HEIGHT), pygame.SRCALPHA
+        )
+        frame_surface.blit(
+            player_sprite_sheet,
+            (0, 0),
+            (i * FRAME_WIDTH, 0, FRAME_WIDTH, FRAME_HEIGHT),
+        )
+        frame_surface = pygame.transform.scale(
+            frame_surface, (TILE_SIZE, TILE_SIZE)
+        )
+        frames.append(frame_surface)
+
+    current_frame = 0
+    animation_timer = 0
+    ANIMATION_SPEED = 150
 
     zombie_image = pygame.image.load("images/zombie.svg").convert_alpha()
     zombie_image = pygame.transform.scale(zombie_image, (TILE_SIZE, TILE_SIZE))
@@ -99,6 +123,10 @@ def main():
 
     land_image = pygame.image.load("images/land.svg").convert_alpha()
     background = tile_background(land_image, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+    crosshair_image = pygame.image.load("images/crosshair.svg").convert_alpha()
+    crosshair_image = pygame.transform.scale2x(crosshair_image)
+    pygame.mouse.set_visible(False)
 
     while running:
         for event in pygame.event.get():
@@ -130,7 +158,7 @@ def main():
         if keys[pygame.K_d]:
             move.x += 1
 
-        if move.length_squared():
+        if move.length_squared() > 0:
             move.normalize_ip()
 
         player_pos += move * SPEED * dt
@@ -179,21 +207,24 @@ def main():
                 bullets.remove(bullet)
                 if mob_hp == 0:
                     score += 1
-                    pygame.time.set_timer(
-                        pygame.Event(
-                            SPAWN_ENEMY_EVENT,
-                            {"message": "You cannot kill me!"},
-                        ),
-                        3000,
-                        loops=1,
-                    )
+                    pygame.time.set_timer(SPAWN_ENEMY_EVENT, 3000, loops=1)
                     mob_hp = -1
 
         screen.blit(background, (0, 0))
 
-        player = pygame.transform.rotate(player_image, angle - 90)
-        player_rect = player_image.get_rect(center=player_pos)
+        is_moving = move.length_squared() > 0
 
+        if is_moving:
+            animation_timer += dt * 1000
+            if animation_timer >= ANIMATION_SPEED:
+                animation_timer = 0
+                current_frame = (current_frame + 1) % FRAME_COUNT
+        else:
+            current_frame = 0
+
+        player = frames[current_frame]
+        player = pygame.transform.rotate(player, angle - 90)
+        player_rect = player.get_rect(center=player_pos)
         screen.blit(player, player_rect)
 
         for bullet in bullets:
@@ -212,6 +243,9 @@ def main():
         )
         score_rect = score_text.get_rect(left=0, top=0)
         screen.blit(score_text, score_rect)
+
+        crosshair_rect = crosshair_image.get_rect(center=mouse_pos)
+        screen.blit(crosshair_image, crosshair_rect)
 
         pygame.display.flip()
 
