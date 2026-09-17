@@ -13,6 +13,12 @@ BULLET_SPEED = 700
 BULLET_RADIUS = 5
 FIRE_INTERVAL = 0.12
 
+MOB_SIZE = 60
+MOB_MAX_HP = 100
+BULLET_DAMAGE = 25
+
+SPAWN_ENEMY_EVENT = pygame.event.custom_type()
+
 
 def create_gun():
     gun = pygame.Surface((GUN_WIDTH, GUN_HEIGHT), pygame.SRCALPHA)
@@ -33,6 +39,24 @@ def create_gun():
     return gun
 
 
+def draw_mob(screen, pos, hp, max_hp):
+    half = MOB_SIZE / 2
+    mob_rect = pygame.Rect(pos.x - half, pos.y - half, MOB_SIZE, MOB_SIZE)
+    pygame.draw.rect(screen, "#cc4444", mob_rect)
+
+    bar_width = MOB_SIZE
+    bar_height = 6
+    bar_x = pos.x - half
+    bar_y = pos.y - half - 10
+
+    pygame.draw.rect(screen, "#330000", (bar_x, bar_y, bar_width, bar_height))
+    if hp > 0:
+        fill_width = int(bar_width * hp / max_hp)
+        pygame.draw.rect(
+            screen, "#00cc00", (bar_x, bar_y, fill_width, bar_height)
+        )
+
+
 def main():
     pygame.init()
 
@@ -51,6 +75,9 @@ def main():
     bullets = []
     fire_cooldown = 0.0
 
+    mob_pos = pygame.Vector2(WINDOW_WIDTH * 0.75, WINDOW_HEIGHT // 2)
+    mob_hp = MOB_MAX_HP
+
     dt = 0
 
     running = True
@@ -60,6 +87,10 @@ def main():
     is_lazer = False
     lazer_colors = ["red", "green", "blue"]
     lazer_index = 0
+
+    score = 0
+
+    font = pygame.font.SysFont(None, 48)
 
     while running:
         for event in pygame.event.get():
@@ -84,6 +115,9 @@ def main():
                 case pygame.MOUSEBUTTONUP:
                     if event.button == 1:
                         is_left_mouse = False
+                case SPAWN_ENEMY_EVENT:
+                    if mob_hp == -1:
+                        mob_hp = MOB_MAX_HP
 
         lazer_color = lazer_colors[lazer_index]
 
@@ -119,7 +153,6 @@ def main():
         gun_rect = rotated_gun.get_rect(center=gun_center)
         muzzle_pos = player_pos + direction * GUN_WIDTH
 
-        # if pygame.mouse.get_pressed()[0]:
         if is_left_mouse:
             fire_cooldown -= dt
             if fire_cooldown <= 0:
@@ -134,6 +167,12 @@ def main():
             fire_cooldown = 0.0
 
         screen_rect = screen.get_rect().inflate(40, 40)
+        mob_rect = None
+        if mob_hp > 0:
+            half = MOB_SIZE / 2
+            mob_rect = pygame.Rect(
+                mob_pos.x - half, mob_pos.y - half, MOB_SIZE, MOB_SIZE
+            )
 
         for bullet in bullets[:]:
             bullet["pos"] += bullet["dir"] * BULLET_SPEED * dt
@@ -141,6 +180,21 @@ def main():
             if not screen_rect.collidepoint(bullet["pos"]):
                 bullets.remove(bullet)
                 continue
+
+            if mob_rect and mob_rect.collidepoint(bullet["pos"]):
+                mob_hp = max(mob_hp - BULLET_DAMAGE, 0)
+                bullets.remove(bullet)
+                if mob_hp == 0:
+                    score += 1
+                    pygame.time.set_timer(
+                        pygame.Event(
+                            SPAWN_ENEMY_EVENT,
+                            {"message": "You cannot kill me!"},
+                        ),
+                        3000,
+                        loops=1,
+                    )
+                    mob_hp = -1
 
         screen.fill(BG_COLOR)
 
@@ -151,6 +205,9 @@ def main():
         for bullet in bullets:
             pygame.draw.circle(screen, "#fa5252", bullet["pos"], BULLET_RADIUS)
 
+        if mob_hp > 0:
+            draw_mob(screen, mob_pos, mob_hp, MOB_MAX_HP)
+
         if is_lazer and to_mouse.length_squared() > 2500:
             pygame.draw.line(
                 screen,
@@ -159,6 +216,12 @@ def main():
                 mouse_pos,
                 3,
             )
+
+        score_text = font.render(
+            f"Score: {score}", antialias=False, color="white"
+        )
+        score_rect = score_text.get_rect(left=0, top=0)
+        screen.blit(score_text, score_rect)
 
         pygame.display.flip()
 
