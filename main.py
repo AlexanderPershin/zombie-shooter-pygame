@@ -17,6 +17,8 @@ def main():
 
     player_x, player_y = screen.get_rect().center
 
+    keys_pressed = set()
+
     clock = pygame.Clock()
 
     running = True
@@ -27,16 +29,24 @@ def main():
                 case pygame.QUIT:
                     running = False
                 case pygame.KEYDOWN:
-                    if event.key == pygame.K_a:
-                        player_x -= SPEED
-                    elif event.key == pygame.K_d:
-                        player_x += SPEED
-                    elif event.key == pygame.K_w:
-                        player_y -= SPEED
-                    elif event.key == pygame.K_s:
-                        player_y += SPEED
+                    keys_pressed.add(event.key)
+                case pygame.KEYUP:
+                    keys_pressed.discard(event.key)
 
         screen.fill(BG_COLOR)
+
+        dx, dy = 0, 0
+        if pygame.K_a in keys_pressed:
+            dx -= 1
+        if pygame.K_d in keys_pressed:
+            dx += 1
+        if pygame.K_w in keys_pressed:
+            dy -= 1
+        if pygame.K_s in keys_pressed:
+            dy += 1
+
+        player_x += dx * SPEED
+        player_y += dy * SPEED
 
         pygame.draw.circle(
             screen, "#009900", (int(player_x), int(player_y)), 50
