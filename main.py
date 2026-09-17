@@ -1,91 +1,19 @@
+import random
+
 import pygame
 import typer
 
+import utils
 from config import Config
+from enemies import Mob
 
 FRAME_COUNT = 8
 ANIMATION_SPEED_MS = 150
 BULLET_SPAWN_OFFSET = 32
 MOB_SPAWN_DELAY_MS = 3000
-MOB_HP_DEAD = -1
-HP_BAR_HEIGHT = 6
-HP_BAR_OFFSET = 10
-BULLET_SCREEN_MARGIN = 40
+SCREEN_MARGIN = 40
 
 CONFIG = Config.load_from_ini()
-
-
-def get_movement_direction(keys: pygame.key.ScancodeWrapper) -> pygame.Vector2:
-    move = pygame.Vector2()
-
-    if keys[pygame.K_w] or keys[pygame.K_UP]:
-        move.y -= 1
-    if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-        move.y += 1
-    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-        move.x -= 1
-    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-        move.x += 1
-
-    if move.length_squared() > 0:
-        move.normalize_ip()
-
-    return move
-
-
-def aim_direction(
-    from_pos: pygame.Vector2, to_pos: pygame.Vector2
-) -> pygame.Vector2:
-    to_target = to_pos - from_pos
-    if to_target.length_squared():
-        return to_target.normalize()
-    return pygame.Vector2(1, 0)
-
-
-def direction_to_angle(direction: pygame.Vector2) -> float:
-    return -direction.as_polar()[1]
-
-
-def load_sprite_frames(
-    sprite_sheet: pygame.Surface, frame_count: int, tile_size: int
-) -> list[pygame.Surface]:
-    frame_width = sprite_sheet.get_width() // frame_count
-    frame_height = sprite_sheet.get_height()
-    frames = []
-
-    for i in range(frame_count):
-        frame_surface = pygame.Surface(
-            (frame_width, frame_height), pygame.SRCALPHA
-        )
-        frame_surface.blit(
-            sprite_sheet,
-            (0, 0),
-            (i * frame_width, 0, frame_width, frame_height),
-        )
-        frames.append(
-            pygame.transform.scale(frame_surface, (tile_size, tile_size))
-        )
-
-    return frames
-
-
-def tile_background(
-    land_image: pygame.Surface, width: int, height: int
-) -> pygame.Surface:
-    bg_surface = pygame.Surface((width, height))
-    tile_w = land_image.get_width()
-    tile_h = land_image.get_height()
-
-    for y in range(0, height, tile_h):
-        for x in range(0, width, tile_w):
-            bg_surface.blit(land_image, (x, y))
-
-    return bg_surface
-
-
-def mob_rect(pos: pygame.Vector2, tile_size: int) -> pygame.Rect:
-    half = tile_size / 2
-    return pygame.Rect(pos.x - half, pos.y - half, tile_size, tile_size)
 
 
 def main(
@@ -98,6 +26,7 @@ def main(
     bullet_damage: int | None = typer.Option(None, "--bullet-damage"),
     fire_interval: int | None = typer.Option(None, "--fire-interval"),
     mob_max_hp: int | None = typer.Option(None, "--mob-max-hp"),
+    mob_speed: int | None = typer.Option(None, "--mob-speed"),
     gui_font_size: int | None = typer.Option(None, "--gui-font-size"),
     gui_text_color: str | None = typer.Option(None, "--gui-text-color"),
 ):
@@ -111,6 +40,7 @@ def main(
         bullet_damage=bullet_damage,
         fire_interval=fire_interval,
         mob_max_hp=mob_max_hp,
+        mob_speed=mob_speed,
         gui_font_size=gui_font_size,
         gui_text_color=gui_text_color,
     )
@@ -123,6 +53,15 @@ class Game:
         self.running = False
         self.config = config
 
+        self.SPAWN_ENEMY_EVENT = pygame.event.custom_type()
+
+        self.player_max_hp = 100
+        self.player_hp = 100
+        self.invincible_timer = 0.0
+        self.invincible_duration = 0.5
+
+        self.game_over = False
+
     def __enter__(self):
         pygame.mixer.pre_init(
             frequency=44100,
@@ -134,8 +73,6 @@ class Game:
         pygame.init()
         pygame.mixer.set_num_channels(16)
 
-        self.SPAWN_ENEMY_EVENT = pygame.event.custom_type()
-
         self.screen = pygame.display.set_mode(
             (self.config.window_width, self.config.window_height)
         )
@@ -143,17 +80,16 @@ class Game:
 
         self.clock = pygame.time.Clock()
         self.screen_bounds = self.screen.get_rect().inflate(
-            BULLET_SCREEN_MARGIN, BULLET_SCREEN_MARGIN
+            SCREEN_MARGIN, SCREEN_MARGIN
         )
 
         self.player_pos = pygame.Vector2(self.screen.get_rect().center)
         self.mouse_pos = pygame.Vector2()
         self.bullets: list[dict[str, pygame.Vector2]] = []
         self.fire_cooldown = 0.0
-        self.mob_pos = pygame.Vector2(
-            self.config.window_width * 0.75, self.config.window_height // 2
-        )
-        self.mob_hp = self.config.mob_max_hp
+
+        self.enemies: list[Mob] = []
+
         self.dt = 0.0
         self.is_left_mouse = False
         self.score = 0
@@ -164,9 +100,24 @@ class Game:
         self._load_sounds()
 
         self.current_frame = 0
+        self.player = self.frames[self.current_frame]
+        self.player_rect = self.player.get_rect(center=self.player_pos)
+
         self.animation_timer = 0
         self.was_moving = False
+
         self.running = True
+
+        self.mobs_positions: list[pygame.Vector2] = (
+            utils.generate_mobs_positions(
+                self.config.tile_size,
+                self.config.window_width,
+                self.config.window_height,
+                SCREEN_MARGIN,
+            )
+        )
+
+        pygame.event.post(pygame.event.Event(self.SPAWN_ENEMY_EVENT))
 
         return self
 
@@ -182,7 +133,7 @@ class Game:
         player_sprite_sheet = pygame.image.load(
             "images/character_sprite.svg"
         ).convert_alpha()
-        self.frames = load_sprite_frames(
+        self.frames = utils.load_sprite_frames(
             player_sprite_sheet, FRAME_COUNT, self.config.tile_size
         )
 
@@ -194,9 +145,15 @@ class Game:
             "images/bullet.svg"
         ).convert_alpha()
 
-        land_image = pygame.image.load("images/land.svg").convert_alpha()
-        self.background = tile_background(
-            land_image, self.config.window_width, self.config.window_height
+        land_images: pygame.Surface = []
+        for i in range(1, 6):
+            land_image = pygame.image.load(
+                f"images/land/land{i}.svg"
+            ).convert()
+            land_images.append(land_image)
+
+        self.background = utils.tile_background(
+            land_images, self.config.window_width, self.config.window_height
         )
 
         self.crosshair_image = pygame.transform.scale2x(
@@ -234,20 +191,29 @@ class Game:
                     if event.button == 1:
                         self.is_left_mouse = False
                 case self.SPAWN_ENEMY_EVENT:
-                    if self.mob_hp == MOB_HP_DEAD:
-                        self.zombie_sound.play()
-                        self.mob_hp = self.config.mob_max_hp
+                    for y_pos in random.choices(self.mobs_positions, k=3):
+                        self.enemies.append(
+                            Mob(
+                                self.zombie_image,
+                                self.config.mob_max_hp,
+                                y_pos.copy(),
+                                self.zombie_sound,
+                                self.impact_sound,
+                                self.config.tile_size,
+                                self.config.mob_speed,
+                            )
+                        )
 
         self.keys = pygame.key.get_pressed()
 
     def update(self):
-        move = get_movement_direction(self.keys)
+        move = utils.get_movement_direction(self.keys)
         self.player_pos += move * self.config.speed * self.dt
 
-        direction = aim_direction(self.player_pos, self.mouse_pos)
-        angle = direction_to_angle(direction)
+        direction = utils.aim_direction(self.player_pos, self.mouse_pos)
+        angle = utils.direction_to_angle(direction)
 
-        if self.is_left_mouse:
+        if self.is_left_mouse and not self.game_over:
             self.fire_cooldown -= self.dt
             if self.fire_cooldown <= 0:
                 self.shot_sound.play()
@@ -262,12 +228,59 @@ class Game:
         else:
             self.fire_cooldown = 0.0
 
-        current_mob_rect = (
-            mob_rect(self.mob_pos, self.config.tile_size)
-            if self.mob_hp > 0
-            else None
-        )
-        self.bullets = self._update_bullets(current_mob_rect)
+        if self.invincible_timer > 0:
+            self.invincible_timer -= self.dt
+
+        for enemy in self.enemies:
+            if enemy.is_alive and enemy.rect.colliderect(self.player_rect):
+                if self.invincible_timer <= 0:
+                    self.player_hp -= 10
+                    self.invincible_timer = self.invincible_duration
+                    if self.player_hp <= 0:
+                        self.player_hp = 0
+                        self.game_over = True
+                        return
+
+                    offset = enemy.pos - self.player_pos
+                    if offset.length_squared() > 1:
+                        direction_away = offset.normalize()
+                        enemy.pos += direction_away * 30
+                    else:
+                        enemy.pos.x += 20
+                        enemy.pos.y += 20
+
+                    direction_away = (enemy.pos - self.player_pos).normalize()
+                    enemy.pos += direction_away * 30
+
+        if not self.game_over:
+            for enemy in self.enemies:
+                enemy.update(self.player_pos, self.dt)
+
+        for bullet in self.bullets[:]:
+            bullet["pos"] += bullet["dir"] * self.config.bullet_speed * self.dt
+
+            if not self.screen_bounds.collidepoint(bullet["pos"]):
+                self.bullets.remove(bullet)
+                continue
+
+            hit_occurred = False
+            for enemy in self.enemies[:]:
+                if enemy.is_alive and enemy.check_hit(bullet["pos"]):
+                    enemy.hit(self.config.bullet_damage)
+
+                    if not enemy.is_alive:
+                        self.score += 1
+                        self.enemies.remove(enemy)
+
+                    if not self.enemies:
+                        pygame.time.set_timer(
+                            self.SPAWN_ENEMY_EVENT, MOB_SPAWN_DELAY_MS, loops=1
+                        )
+                    hit_occurred = True
+                    break
+
+            if hit_occurred:
+                self.bullets.remove(bullet)
 
         self._update_footsteps(move)
         self._update_animation(move)
@@ -279,35 +292,6 @@ class Game:
         self.crosshair_rect = self.crosshair_image.get_rect(
             center=self.mouse_pos
         )
-
-    def _update_bullets(
-        self, current_mob_rect: pygame.Rect | None
-    ) -> list[dict[str, pygame.Vector2]]:
-        remaining_bullets = []
-
-        for bullet in self.bullets:
-            bullet["pos"] += bullet["dir"] * self.config.bullet_speed * self.dt
-
-            if not self.screen_bounds.collidepoint(bullet["pos"]):
-                continue
-
-            if current_mob_rect and current_mob_rect.collidepoint(
-                bullet["pos"]
-            ):
-                self.mob_hp = max(self.mob_hp - self.config.bullet_damage, 0)
-                self.impact_sound.play()
-
-                if self.mob_hp == 0:
-                    self.score += 1
-                    pygame.time.set_timer(
-                        self.SPAWN_ENEMY_EVENT, MOB_SPAWN_DELAY_MS, loops=1
-                    )
-                    self.mob_hp = MOB_HP_DEAD
-                continue
-
-            remaining_bullets.append(bullet)
-
-        return remaining_bullets
 
     def _update_footsteps(self, move: pygame.Vector2) -> None:
         is_moving = move.length_squared() > 0
@@ -328,18 +312,34 @@ class Game:
         else:
             self.current_frame = 0
 
+    def draw_player_hp(self):
+        bar_width = 200
+        bar_height = 20
+        x = 10
+        y = self.screen.get_rect().height - 50
+        pygame.draw.rect(self.screen, "#330000", (x, y, bar_width, bar_height))
+        fill = int(bar_width * self.player_hp / self.player_max_hp)
+        pygame.draw.rect(self.screen, "#00cc00", (x, y, fill, bar_height))
+        hp_text = self.font.render(
+            f"HP: {self.player_hp}", False, self.config.gui_text_color
+        )
+        self.screen.blit(hp_text, (x, y - 25))
+
     def display_hud(self):
         score_text = self.font.render(
             f"Score: {self.score}",
             antialias=False,
             color=self.config.gui_text_color,
         )
-        self.screen.blit(score_text, score_text.get_rect(left=0, top=0))
+        self.screen.blit(score_text, score_text.get_rect(left=10, top=10))
+        self.draw_player_hp()
 
     def draw(self):
         self.screen.blit(self.background, (0, 0))
         self.display_hud()
-        self.screen.blit(self.player, self.player_rect)
+
+        if not self.game_over:
+            self.screen.blit(self.player, self.player_rect)
 
         for bullet in self.bullets:
             phi = bullet["dir"].as_polar()[1]
@@ -351,36 +351,11 @@ class Game:
                 rotated_bullet.get_rect(center=bullet["pos"]),
             )
 
-        if self.mob_hp > 0:
-            self.draw_mob(self.mob_pos, self.mob_hp)
+        for enemy in self.enemies:
+            enemy.draw(self.screen)
 
         self.screen.blit(self.crosshair_image, self.crosshair_rect)
         pygame.display.flip()
-
-    def draw_mob(self, pos: pygame.Vector2, hp: int):
-        direction = aim_direction(pos, self.player_pos)
-        rotation_angle = direction_to_angle(direction) - 90
-
-        rotated_image = pygame.transform.rotate(
-            self.zombie_image, rotation_angle
-        )
-        self.screen.blit(rotated_image, rotated_image.get_rect(center=pos))
-
-        half = self.config.tile_size / 2
-        bar_width = self.config.tile_size
-        bar_x = pos.x - half
-        bar_y = pos.y - half - HP_BAR_OFFSET
-
-        pygame.draw.rect(
-            self.screen, "#330000", (bar_x, bar_y, bar_width, HP_BAR_HEIGHT)
-        )
-        if hp > 0:
-            fill_width = int(bar_width * hp / self.config.mob_max_hp)
-            pygame.draw.rect(
-                self.screen,
-                "#fa5252",
-                (bar_x, bar_y, fill_width, HP_BAR_HEIGHT),
-            )
 
 
 def run_game(config: Config):

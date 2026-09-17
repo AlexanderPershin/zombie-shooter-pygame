@@ -20,6 +20,7 @@ class Config(BaseModel):
     fire_interval: float = Field(default=0.12, gt=0)
 
     mob_max_hp: int = Field(default=100, gt=0)
+    mob_speed: int = Field(default=150, gt=0)
 
     gui_font_size: int = Field(default=24, gt=0, le=200)
     gui_text_color: str = Field(default="#006699")
