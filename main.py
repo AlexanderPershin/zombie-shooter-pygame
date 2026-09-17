@@ -61,11 +61,20 @@ def tile_background(
 
 
 def main():
+    pygame.mixer.pre_init(
+        frequency=44100,
+        size=-16,
+        channels=2,
+        buffer=512,
+        allowedchanges=pygame.AUDIO_ALLOW_ANY_CHANGE,
+    )
     pygame.init()
+
+    pygame.mixer.set_num_channels(16)
 
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 
-    pygame.display.set_caption("Mouse events")
+    pygame.display.set_caption("Sounds")
 
     clock = pygame.time.Clock()
 
@@ -128,6 +137,17 @@ def main():
     crosshair_image = pygame.transform.scale2x(crosshair_image)
     pygame.mouse.set_visible(False)
 
+    shot_sound = pygame.mixer.Sound("sounds/shot.wav")
+    impact_sound = pygame.mixer.Sound("sounds/impact.wav")
+    zombie_sound = pygame.mixer.Sound("sounds/zombie.wav")
+
+    footsteps_sound = pygame.mixer.Sound("sounds/footsteps.wav")
+
+    pygame.mixer.music.load("sounds/theme.wav")
+    pygame.mixer.music.play(-1)
+
+    was_moving = False
+
     while running:
         for event in pygame.event.get():
             match event.type:
@@ -143,6 +163,7 @@ def main():
                         is_left_mouse = False
                 case SPAWN_ENEMY_EVENT:
                     if mob_hp == -1:
+                        zombie_sound.play()
                         mob_hp = MOB_MAX_HP
 
         keys = pygame.key.get_pressed()
@@ -177,6 +198,7 @@ def main():
         if is_left_mouse:
             fire_cooldown -= dt
             if fire_cooldown <= 0:
+                shot_sound.play()
                 bullets.append(
                     {
                         "pos": pygame.Vector2(bullet_pos),
@@ -205,6 +227,9 @@ def main():
             if mob_rect and mob_rect.collidepoint(bullet["pos"]):
                 mob_hp = max(mob_hp - BULLET_DAMAGE, 0)
                 bullets.remove(bullet)
+
+                impact_sound.play()
+
                 if mob_hp == 0:
                     score += 1
                     pygame.time.set_timer(SPAWN_ENEMY_EVENT, 3000, loops=1)
@@ -213,6 +238,13 @@ def main():
         screen.blit(background, (0, 0))
 
         is_moving = move.length_squared() > 0
+
+        if is_moving and not was_moving:
+            footsteps_sound.play(-1)
+        elif not is_moving and was_moving:
+            footsteps_sound.stop()
+
+        was_moving = is_moving
 
         if is_moving:
             animation_timer += dt * 1000
