@@ -9,6 +9,10 @@ SPEED = 300
 GUN_WIDTH = 50
 GUN_HEIGHT = 16
 
+BULLET_SPEED = 700
+BULLET_RADIUS = 5
+FIRE_INTERVAL = 0.12
+
 
 def create_gun():
     gun = pygame.Surface((GUN_WIDTH, GUN_HEIGHT), pygame.SRCALPHA)
@@ -44,9 +48,18 @@ def main():
 
     gun_source = create_gun()
 
+    bullets = []
+    fire_cooldown = 0.0
+
     dt = 0
 
     running = True
+
+    is_left_mouse = False
+
+    is_lazer = False
+    lazer_colors = ["red", "green", "blue"]
+    lazer_index = 0
 
     while running:
         for event in pygame.event.get():
@@ -55,6 +68,24 @@ def main():
                     running = False
                 case pygame.MOUSEMOTION:
                     mouse_pos = pygame.Vector2(event.pos)
+                case pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:
+                        is_left_mouse = True
+                    if event.button == 2:
+                        is_lazer = not is_lazer
+                    if event.button == 4:
+                        lazer_index -= 1
+                        if lazer_index == -1:
+                            lazer_index = len(lazer_colors) - 1
+                    if event.button == 5:
+                        lazer_index += 1
+                        if lazer_index == len(lazer_colors):
+                            lazer_index = 0
+                case pygame.MOUSEBUTTONUP:
+                    if event.button == 1:
+                        is_left_mouse = False
+
+        lazer_color = lazer_colors[lazer_index]
 
         keys = pygame.key.get_pressed()
 
@@ -88,16 +119,42 @@ def main():
         gun_rect = rotated_gun.get_rect(center=gun_center)
         muzzle_pos = player_pos + direction * GUN_WIDTH
 
+        # if pygame.mouse.get_pressed()[0]:
+        if is_left_mouse:
+            fire_cooldown -= dt
+            if fire_cooldown <= 0:
+                bullets.append(
+                    {
+                        "pos": pygame.Vector2(muzzle_pos),
+                        "dir": pygame.Vector2(direction),
+                    }
+                )
+                fire_cooldown = FIRE_INTERVAL
+        else:
+            fire_cooldown = 0.0
+
+        screen_rect = screen.get_rect().inflate(40, 40)
+
+        for bullet in bullets[:]:
+            bullet["pos"] += bullet["dir"] * BULLET_SPEED * dt
+
+            if not screen_rect.collidepoint(bullet["pos"]):
+                bullets.remove(bullet)
+                continue
+
         screen.fill(BG_COLOR)
 
         pygame.draw.circle(screen, "#009900", player_pos, 50)
 
         screen.blit(rotated_gun, gun_rect)
 
-        if to_mouse.length_squared() > 2500:
+        for bullet in bullets:
+            pygame.draw.circle(screen, "#fa5252", bullet["pos"], BULLET_RADIUS)
+
+        if is_lazer and to_mouse.length_squared() > 2500:
             pygame.draw.line(
                 screen,
-                (255, 0, 0),
+                lazer_color,
                 muzzle_pos,
                 mouse_pos,
                 3,
