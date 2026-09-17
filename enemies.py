@@ -23,9 +23,9 @@ class Mob:
         self.hp = max_hp
 
         self.pos = pos
-        self.player_pos = pygame.Vector2()
 
-        self.direction = utils.aim_direction(self.pos, self.player_pos)
+        player_pos = pygame.Vector2()
+        self.direction = utils.aim_direction(self.pos, player_pos)
 
         self.spawn_sound = spawn_sound
         self.hit_sound = hit_sound
@@ -42,27 +42,21 @@ class Mob:
     def is_alive(self) -> bool:
         return self.hp > 0
 
-    def check_hit(self, projectile_pos: pygame.Vector2) -> bool:
-        return self.rect.collidepoint(projectile_pos)
+    def hit(self, pos: pygame.Vector2, damage: int):
+        if self.rect.collidepoint(pos):
+            self.hp = max(self.hp - damage, 0)
+            self.hit_sound.play()
+            return True
 
-    def hit(self, damage: int):
-        self.hp = max(self.hp - damage, 0)
-        self.hit_sound.play()
+        return False
 
-        return self.is_alive
+    def update(self, player_rect: pygame.Rect, dt: float):
+        player_pos = pygame.Vector2(player_rect.center)
+        self.direction = utils.aim_direction(self.pos, player_pos)
 
-    def update(self, player_pos: pygame.Vector2, dt: float):
-
-        self.player_pos = player_pos
-        self.direction = utils.aim_direction(self.pos, self.player_pos)
-
-        distance = self.player_pos.distance_to(self.pos)
-        if distance > 1:
+        if not self.rect.colliderect(player_rect):
             step = self.speed * dt
-            if step >= distance:
-                self.pos = self.player_pos.copy()
-            else:
-                self.pos += self.direction * step
+            self.pos += self.direction * step
 
         self.rect = self.image.get_rect(center=self.pos)
 

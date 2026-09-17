@@ -6,10 +6,9 @@ import typer
 import utils
 from config import Config
 from enemies import Mob
+from guns import Gun
+from player import FRAME_COUNT, Player
 
-FRAME_COUNT = 8
-ANIMATION_SPEED_MS = 150
-BULLET_SPAWN_OFFSET = 32
 MOB_SPAWN_DELAY_MS = 3000
 SCREEN_MARGIN = 40
 
@@ -55,11 +54,6 @@ class Game:
 
         self.SPAWN_ENEMY_EVENT = pygame.event.custom_type()
 
-        self.player_max_hp = 100
-        self.player_hp = 100
-        self.invincible_timer = 0.0
-        self.invincible_duration = 0.5
-
         self.game_over = False
 
     def __enter__(self):
@@ -83,28 +77,35 @@ class Game:
             SCREEN_MARGIN, SCREEN_MARGIN
         )
 
-        self.player_pos = pygame.Vector2(self.screen.get_rect().center)
         self.mouse_pos = pygame.Vector2()
         self.bullets: list[dict[str, pygame.Vector2]] = []
-        self.fire_cooldown = 0.0
 
         self.enemies: list[Mob] = []
 
         self.dt = 0.0
         self.is_left_mouse = False
+        self.is_wheel_down = False
+        self.is_reload = False
         self.score = 0
         self.keys = pygame.key.get_pressed()
 
         self._load_font()
         self._load_images()
         self._load_sounds()
+        self._create_guns()
 
-        self.current_frame = 0
-        self.player = self.frames[self.current_frame]
-        self.player_rect = self.player.get_rect(center=self.player_pos)
+        player_pos = pygame.Vector2(
+            self.screen.get_rect().center,
+        )
 
-        self.animation_timer = 0
-        self.was_moving = False
+        self.player = Player(
+            120,
+            player_pos,
+            self.config.speed,
+            self.player_frames,
+            self.footsteps_sound,
+            self.guns,
+        )
 
         self.running = True
 
@@ -133,7 +134,7 @@ class Game:
         player_sprite_sheet = pygame.image.load(
             "images/character_sprite.svg"
         ).convert_alpha()
-        self.frames = utils.load_sprite_frames(
+        self.player_frames = utils.load_sprite_frames(
             player_sprite_sheet, FRAME_COUNT, self.config.tile_size
         )
 
@@ -170,6 +171,37 @@ class Game:
         pygame.mixer.music.load("sounds/theme.wav")
         pygame.mixer.music.play(-1)
 
+    def _create_guns(self) -> None:
+        deagle_sound = self.shot_sound.copy()
+        self.shot_sound.set_volume(0.1)
+
+        glock = Gun(
+            "Glock 19",
+            self.bullet_image,
+            self.config.bullet_damage,
+            self.config.bullet_speed,
+            self.config.fire_interval,
+            15,
+            1,
+            self.shot_sound,
+        )
+
+        deagle_bullet = pygame.transform.scale_by(self.bullet_image, 1.5)
+        deagle_sound.set_volume(1.0)
+
+        desert_eagle = Gun(
+            "Desert Eagle",
+            deagle_bullet,
+            self.config.bullet_damage * 2,
+            self.config.bullet_speed * 2,
+            self.config.fire_interval * 5,
+            7,
+            2,
+            deagle_sound,
+        )
+
+        self.guns = [glock, desert_eagle]
+
     def run(self):
         while self.running:
             self.dt = self.clock.tick(self.config.fps) / 1000
@@ -187,9 +219,14 @@ class Game:
                 case pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
                         self.is_left_mouse = True
+                    if event.button == 5:
+                        self.is_wheel_down = True
                 case pygame.MOUSEBUTTONUP:
                     if event.button == 1:
                         self.is_left_mouse = False
+                case pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        self.is_reload = True
                 case self.SPAWN_ENEMY_EVENT:
                     for y_pos in random.choices(self.mobs_positions, k=3):
                         self.enemies.append(
@@ -208,121 +245,68 @@ class Game:
 
     def update(self):
         move = utils.get_movement_direction(self.keys)
-        self.player_pos += move * self.config.speed * self.dt
 
-        direction = utils.aim_direction(self.player_pos, self.mouse_pos)
-        angle = utils.direction_to_angle(direction)
-
-        if self.is_left_mouse and not self.game_over:
-            self.fire_cooldown -= self.dt
-            if self.fire_cooldown <= 0:
-                self.shot_sound.play()
-                self.bullets.append(
-                    {
-                        "pos": self.player_pos
-                        + direction * BULLET_SPAWN_OFFSET,
-                        "dir": pygame.Vector2(direction),
-                    }
-                )
-                self.fire_cooldown = self.config.fire_interval
-        else:
-            self.fire_cooldown = 0.0
-
-        if self.invincible_timer > 0:
-            self.invincible_timer -= self.dt
+        if not self.game_over:
+            self.player.update(
+                move,
+                self.is_left_mouse,
+                self.is_wheel_down,
+                self.is_reload,
+                self.mouse_pos,
+                self.dt,
+            )
+            self.game_over = self.player.is_dead
+            self.is_wheel_down = False
+            self.is_reload = False
 
         for enemy in self.enemies:
-            if enemy.is_alive and enemy.rect.colliderect(self.player_rect):
-                if self.invincible_timer <= 0:
-                    self.player_hp -= 10
-                    self.invincible_timer = self.invincible_duration
-                    if self.player_hp <= 0:
-                        self.player_hp = 0
-                        self.game_over = True
-                        return
-
-                    offset = enemy.pos - self.player_pos
-                    if offset.length_squared() > 1:
-                        direction_away = offset.normalize()
-                        enemy.pos += direction_away * 30
-                    else:
-                        enemy.pos.x += 20
-                        enemy.pos.y += 20
-
-                    direction_away = (enemy.pos - self.player_pos).normalize()
-                    enemy.pos += direction_away * 30
+            self.player.hit(enemy.rect, self.config.bullet_damage)
 
         if not self.game_over:
             for enemy in self.enemies:
-                enemy.update(self.player_pos, self.dt)
+                enemy.update(self.player.rect, self.dt)
 
-        for bullet in self.bullets[:]:
-            bullet["pos"] += bullet["dir"] * self.config.bullet_speed * self.dt
-
-            if not self.screen_bounds.collidepoint(bullet["pos"]):
-                self.bullets.remove(bullet)
+        for bullet in self.player.bullets[:]:
+            if not self.screen_bounds.collidepoint(bullet.pos):
+                self.player.bullets.remove(bullet)
                 continue
 
-            hit_occurred = False
+            is_hit = False
             for enemy in self.enemies[:]:
-                if enemy.is_alive and enemy.check_hit(bullet["pos"]):
-                    enemy.hit(self.config.bullet_damage)
+                is_hit = enemy.hit(bullet.pos, bullet.damage)
 
-                    if not enemy.is_alive:
-                        self.score += 1
-                        self.enemies.remove(enemy)
+                if not enemy.is_alive:
+                    self.score += 1
+                    self.enemies.remove(enemy)
 
-                    if not self.enemies:
-                        pygame.time.set_timer(
-                            self.SPAWN_ENEMY_EVENT, MOB_SPAWN_DELAY_MS, loops=1
-                        )
-                    hit_occurred = True
-                    break
+                if not self.enemies:
+                    pygame.time.set_timer(
+                        self.SPAWN_ENEMY_EVENT, MOB_SPAWN_DELAY_MS, loops=1
+                    )
 
-            if hit_occurred:
-                self.bullets.remove(bullet)
+            if is_hit:
+                self.player.bullets.remove(bullet)
 
-        self._update_footsteps(move)
-        self._update_animation(move)
-
-        self.player = pygame.transform.rotate(
-            self.frames[self.current_frame], angle - 90
-        )
-        self.player_rect = self.player.get_rect(center=self.player_pos)
         self.crosshair_rect = self.crosshair_image.get_rect(
             center=self.mouse_pos
         )
 
-    def _update_footsteps(self, move: pygame.Vector2) -> None:
-        is_moving = move.length_squared() > 0
-
-        if is_moving and not self.was_moving:
-            self.footsteps_sound.play(-1)
-        elif not is_moving and self.was_moving:
-            self.footsteps_sound.stop()
-
-        self.was_moving = is_moving
-
-    def _update_animation(self, move: pygame.Vector2) -> None:
-        if move.length_squared() > 0:
-            self.animation_timer += self.dt * 1000
-            if self.animation_timer >= ANIMATION_SPEED_MS:
-                self.animation_timer = 0
-                self.current_frame = (self.current_frame + 1) % FRAME_COUNT
-        else:
-            self.current_frame = 0
-
-    def draw_player_hp(self):
+    def _draw_hp_bar(
+        self,
+        x: int,
+        y: int,
+        font: pygame.font.Font,
+        color: str,
+    ):
         bar_width = 200
         bar_height = 20
-        x = 10
-        y = self.screen.get_rect().height - 50
+
         pygame.draw.rect(self.screen, "#330000", (x, y, bar_width, bar_height))
-        fill = int(bar_width * self.player_hp / self.player_max_hp)
+
+        fill = int(bar_width * self.player.hp / self.player.max_hp)
         pygame.draw.rect(self.screen, "#00cc00", (x, y, fill, bar_height))
-        hp_text = self.font.render(
-            f"HP: {self.player_hp}", False, self.config.gui_text_color
-        )
+
+        hp_text = font.render(f"HP: {self.player.hp}", False, color)
         self.screen.blit(hp_text, (x, y - 25))
 
     def display_hud(self):
@@ -332,24 +316,25 @@ class Game:
             color=self.config.gui_text_color,
         )
         self.screen.blit(score_text, score_text.get_rect(left=10, top=10))
-        self.draw_player_hp()
+
+        x = 10
+        y = self.screen.get_rect().height - 50
+        self._draw_hp_bar(x, y, self.font, self.config.gui_text_color)
+
+        gun_info = self.font.render(
+            str(self.player.gun),
+            self.config.gui_font_size,
+            self.config.gui_text_color,
+        )
+        y = self.screen.get_rect().height - 125
+        self.screen.blit(gun_info, (x, y))
 
     def draw(self):
         self.screen.blit(self.background, (0, 0))
         self.display_hud()
 
         if not self.game_over:
-            self.screen.blit(self.player, self.player_rect)
-
-        for bullet in self.bullets:
-            phi = bullet["dir"].as_polar()[1]
-            rotated_bullet = pygame.transform.rotate(
-                self.bullet_image, -phi - 90
-            )
-            self.screen.blit(
-                rotated_bullet,
-                rotated_bullet.get_rect(center=bullet["pos"]),
-            )
+            self.player.draw(self.screen)
 
         for enemy in self.enemies:
             enemy.draw(self.screen)
