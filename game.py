@@ -223,9 +223,6 @@ class Game:
         self.player_hit_sound = pygame.mixer.Sound("sounds/player_hit.wav")
         self.ui_sound = pygame.mixer.Sound("sounds/ui.wav")
 
-        pygame.mixer.music.load("sounds/theme.wav")
-        pygame.mixer.music.play(-1)
-
     def run(self):
         while self.running:
             self.dt = self.clock.tick(self.config.fps) / 1000
