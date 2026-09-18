@@ -51,7 +51,9 @@ def load_sprite_frames(
             (i * frame_width, 0, frame_width, frame_height),
         )
         frames.append(
-            pygame.transform.scale(frame_surface, (tile_size, tile_size))
+            pygame.transform.scale(
+                frame_surface, (tile_size * 2, tile_size * 2)
+            )
         )
 
     return frames
