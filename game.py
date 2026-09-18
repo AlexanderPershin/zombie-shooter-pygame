@@ -5,6 +5,7 @@ import pygame
 import utils
 from animation import FRAME_COUNT, Animation
 from bullet import Bullet
+from camera import Camera
 from config import Config
 from crosshair import Crosshair
 from effects import BloodSplat, GroundEffectTypes
@@ -17,6 +18,7 @@ from ui import Ui
 MOB_SPAWN_DELAY_MS = 3000
 SCREEN_MARGIN = 100
 MAX_GROUND_EFFECTS = 500
+MAX_MOBS_COUNT = 100
 
 
 class Game:
@@ -39,15 +41,20 @@ class Game:
         pygame.init()
         pygame.mixer.set_num_channels(16)
 
+        self.flags = 0
+        if self.config.fullscreen:
+            self.flags |= pygame.FULLSCREEN
         self.screen = pygame.display.set_mode(
-            (self.config.window_width, self.config.window_height)
+            (self.config.window_width, self.config.window_height),
+            flags=self.flags,
         )
-        pygame.display.set_caption("OOP Shooter")
+        pygame.display.set_caption("Shooter")
 
         self.clock = pygame.time.Clock()
-        self.screen_bounds = self.screen.get_rect().inflate(
-            SCREEN_MARGIN, SCREEN_MARGIN
-        )
+
+        self.world_bounds = pygame.Rect(
+            0, 0, self.config.world_width, self.config.world_height
+        ).inflate(SCREEN_MARGIN, SCREEN_MARGIN)
 
         self.mouse_pos = pygame.Vector2()
 
@@ -68,6 +75,7 @@ class Game:
 
         self.all_sprites = pygame.sprite.LayeredUpdates()
         self.ground_effects = pygame.sprite.Group()
+        self.ui_sprites = pygame.sprite.LayeredUpdates()
 
         self.player_bullets: pygame.sprite.Group[Bullet] = (
             pygame.sprite.Group()
@@ -90,6 +98,8 @@ class Game:
             self.footsteps_sound,
             self.player_hit_sound,
             self.guns,
+            self.config.world_width,
+            self.config.world_height,
         )
         self.all_sprites.add(self.player, layer=3)
 
@@ -102,16 +112,25 @@ class Game:
         self.mobs_positions: list[pygame.Vector2] = (
             utils.generate_mobs_positions(
                 self.config.tile_size,
-                self.config.window_width,
-                self.config.window_height,
+                self.config.world_width,
+                self.config.world_height,
                 SCREEN_MARGIN,
             )
         )
 
+        self.mobs_number = 3
+
         pygame.event.post(pygame.event.Event(self.SPAWN_ENEMY_EVENT))
 
         self.crosshair = Crosshair(self.crosshair_image)
-        self.all_sprites.add(self.crosshair, layer=4)
+        self.ui_sprites.add(self.crosshair, layer=4)
+
+        self.camera = Camera(
+            self.config.window_width,
+            self.config.window_height,
+            self.config.world_width,
+            self.config.world_height,
+        )
 
         self.ui = Ui(
             self.config.window_width,
@@ -120,10 +139,14 @@ class Game:
             self.font,
             self.config.gui_text_color,
             self.config.gui_font_size,
+            self.config.world_width,
+            self.config.world_height,
         )
-        self.all_sprites.add(self.ui, layer=10)
+        self.ui_sprites.add(self.ui, layer=10)
 
         self.running = True
+
+        self.is_paused = False
 
         return self
 
@@ -208,7 +231,7 @@ class Game:
             land_images.append(land_image)
 
         self.background = utils.tile_background(
-            land_images, self.config.window_width, self.config.window_height
+            land_images, self.config.world_width, self.config.world_height
         )
 
         self.medpack_image = pygame.image.load(
@@ -277,7 +300,11 @@ class Game:
         while self.running:
             self.dt = self.clock.tick(self.config.fps) / 1000
             self.watch_for_events()
-            self.update()
+
+            if not self.is_paused:
+                self.update()
+
+            # self.update()
             self.draw()
 
     def watch_for_events(self):
@@ -298,8 +325,12 @@ class Game:
                 case pygame.KEYDOWN:
                     if event.key == pygame.K_r:
                         self.is_reload = True
+                    elif event.key == pygame.K_p:
+                        self.is_paused = not self.is_paused
                 case self.SPAWN_ENEMY_EVENT:
-                    for y_pos in random.choices(self.mobs_positions, k=3):
+                    for y_pos in random.choices(
+                        self.mobs_positions, k=self.mobs_number
+                    ):
                         mob = Mob(
                             self.zombie_animations,
                             self.config.mob_max_hp,
@@ -311,12 +342,34 @@ class Game:
                             10,
                         )
                         self.enemies.add(mob)
-                        # self.all_sprites.add(mob, layer=1)
                         self.all_sprites.add(mob, layer=3)
+                    self.mobs_number = min(
+                        self.mobs_number + 10,
+                        MAX_MOBS_COUNT,
+                    )
 
         self.keys = pygame.key.get_pressed()
 
+    def _separate_enemies(self):
+        mobs = list(self.enemies)
+        for i in range(len(mobs)):
+            for j in range(i + 1, len(mobs)):
+                a, b = mobs[i], mobs[j]
+                diff = a.pos - b.pos
+                dist = diff.length()
+                if 0 < dist < self.config.tile_size:
+                    a.pos += diff / dist
+                    b.pos -= diff / dist
+        for mob in mobs:
+            mob.rect.center = mob.pos
+
     def update(self):
+        self.camera.update(self.player.rect)
+
+        world_mouse_pos = self.mouse_pos + pygame.Vector2(
+            self.camera.rect.x, self.camera.rect.y
+        )
+
         if not self.game_over:
             self.all_sprites.update(
                 self.dt,
@@ -325,7 +378,17 @@ class Game:
                 is_reload=self.is_reload,
                 player=self.player,
                 score=self.score,
+                world_mouse_pos=world_mouse_pos,
             )
+
+            self.ui_sprites.update(
+                self.dt,
+                player=self.player,
+                score=self.score,
+                enemies=self.enemies,
+                items=self.items,
+            )
+            self._separate_enemies()
 
         self.is_wheel_down = False
         self.is_reload = False
@@ -371,7 +434,7 @@ class Game:
                     break
 
         for bullet in self.player_bullets:
-            if not self.screen_bounds.colliderect(bullet):
+            if not self.world_bounds.colliderect(bullet):
                 bullet.kill()
 
     def _spawn_items(self, pos: pygame.Vector2) -> None:
@@ -406,9 +469,17 @@ class Game:
                 self.all_sprites.add(splat)
 
     def draw(self):
-        self.screen.blit(self.background, (0, 0))
+        self.screen.fill("black")
+        self.screen.blit(
+            self.background,
+            self.camera.cut(self.background.get_rect()),
+        )
 
-        if not self.game_over:
-            self.all_sprites.draw(self.screen)
+        for sprite in pygame.sprite.spritecollide(
+            self.camera, self.all_sprites, False
+        ):
+            self.screen.blit(sprite.image, self.camera.cut(sprite.rect))
+
+        self.ui_sprites.draw(self.screen)
 
         pygame.display.flip()

@@ -15,6 +15,8 @@ class Player(pygame.sprite.Sprite):
         footsteps_sound: pygame.mixer.Sound,
         hit_sound: pygame.mixer.Sound,
         guns: list[Gun],
+        world_width: int,
+        world_height: int,
     ):
         pygame.sprite.Sprite.__init__(self)
 
@@ -46,6 +48,9 @@ class Player(pygame.sprite.Sprite):
         self.is_left_mouse = False
         self.is_reload = False
 
+        self.world_width = world_width
+        self.world_height = world_height
+
     @property
     def is_dead(self) -> bool:
         return self.hp <= 0
@@ -71,6 +76,13 @@ class Player(pygame.sprite.Sprite):
             self.hp = max(self.hp - damage, 0)
             self.invincible_timer = self.invincible_duration
 
+    def _stay_in_world(self):
+        half_w = self.rect.width / 2
+        half_h = self.rect.height / 2
+
+        self.pos.x = max(half_w, min(self.pos.x, self.world_width - half_w))
+        self.pos.y = max(half_h, min(self.pos.y, self.world_height - half_h))
+
     def update(
         self,
         dt: float,
@@ -78,16 +90,18 @@ class Player(pygame.sprite.Sprite):
         is_left_mouse: bool,
         is_wheel_down: bool,
         is_reload: bool,
+        world_mouse_pos: pygame.Vector2,
         **kwargs,
     ) -> None:
         self.is_left_mouse = is_left_mouse
         keys = pygame.key.get_pressed()
         move = utils.get_movement_direction(keys)
 
-        mouse_pos = pygame.mouse.get_pos()
         self.pos += move * self.speed * dt
+        self._stay_in_world()
+        self.rect.center = self.pos
 
-        direction = utils.aim_direction(self.pos, mouse_pos)
+        direction = utils.aim_direction(self.pos, world_mouse_pos)
         angle = utils.direction_to_angle(direction)
 
         self.gun.update(dt)

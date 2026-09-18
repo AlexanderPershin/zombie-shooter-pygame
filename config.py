@@ -6,8 +6,12 @@ from pydantic import BaseModel, Field
 
 
 class Config(BaseModel):
+    world_width: int = Field(default=3000, gt=0)
+    world_height: int = Field(default=3000, gt=0)
+
     window_width: int = Field(default=800, gt=0, le=3840)
     window_height: int = Field(default=600, gt=0, le=2160)
+    fullscreen: bool = True
 
     fps: int = Field(default=60, ge=30, le=240)
 
