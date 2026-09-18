@@ -224,13 +224,13 @@ class GameScene(AbstractScene):
                 elif event.key == pygame.K_ESCAPE:
                     self.manager.switch("menu", game_in_progress=True)
             case self.SPAWN_ENEMY_EVENT:
-                for y_pos in random.choices(
+                for mob_pos in random.choices(
                     self.mobs_positions, k=self.mobs_number
                 ):
                     mob = Mob(
                         self.zombie_animations,
                         self.config.mob_max_hp,
-                        y_pos.copy(),
+                        mob_pos.copy(),
                         self.zombie_sound,
                         self.impact_sound,
                         self.config.tile_size,
