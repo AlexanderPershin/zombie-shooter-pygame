@@ -237,6 +237,41 @@ class Minimap(pygame.sprite.Sprite):
         pygame.draw.circle(self.image, "#25F525", self._to_map(player.pos), 4)
 
 
+class FlashMessage(pygame.sprite.Sprite):
+    def __init__(
+        self,
+        message: str,
+        font: pygame.Font,
+        color: str,
+        center: tuple = (400, 300),
+    ):
+        super().__init__()
+
+        self.message = message
+
+        self.font = font
+        self.color = color
+        self.center = center
+        self.score = 0
+
+        self.alpha = 255
+
+        self.image = self.font.render(
+            self.message,
+            antialias=False,
+            color=self.color,
+        )
+        self.rect = self.image.get_rect(center=self.center)
+
+    def update(self, dt: float, *args, **kwargs):
+        self.alpha -= dt * 100
+
+        self.image.set_alpha(self.alpha)
+
+        if self.alpha <= 0:
+            self.kill()
+
+
 class Ui(pygame.sprite.Sprite):
     def __init__(
         self,
@@ -253,6 +288,10 @@ class Ui(pygame.sprite.Sprite):
 
         self.screen_width = screen_width
         self.screen_height = screen_height
+
+        self.font = font
+        self.color = color
+        self.size = size
 
         self.image = pygame.Surface(
             (screen_width, screen_height), pygame.SRCALPHA
@@ -272,6 +311,18 @@ class Ui(pygame.sprite.Sprite):
             Minimap(screen_width, world_width, world_height),
         )
 
+        self.flash_messages = pygame.sprite.GroupSingle()
+
+    def flash_message(self, message: str) -> None:
+        self.flash_messages.add(
+            FlashMessage(
+                message,
+                self.font,
+                self.color,
+                (self.screen_width // 2, self.screen_height // 2),
+            )
+        )
+
     def update(
         self,
         dt: float,
@@ -289,7 +340,9 @@ class Ui(pygame.sprite.Sprite):
             items=items,
             score=score,
         )
+        self.flash_messages.update(dt)
 
         self.image.fill("#00000000")
 
         self.sprites.draw(self.image)
+        self.flash_messages.draw(self.image)
