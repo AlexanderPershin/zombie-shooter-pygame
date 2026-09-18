@@ -13,6 +13,8 @@ from enemies import Mob
 from guns import Gun
 from items import Item, Medpack
 from player import Player
+from scenes.scene import AbstractScene
+from scenes.scene_manager import SceneManager
 from ui import Ui
 
 PLAYER_MAX_HP = 100
@@ -20,8 +22,6 @@ MOB_SPAWN_DELAY_MS = 3000
 SCREEN_MARGIN = 100
 MAX_GROUND_EFFECTS = 500
 MAX_MOBS_COUNT = 100
-from scenes.scene import AbstractScene
-from scenes.scene_manager import SceneManager
 
 LEVELS = [
     {
