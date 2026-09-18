@@ -40,10 +40,6 @@ class Game:
         self.clock = pygame.time.Clock()
 
         self.dt = 0.0
-        self.is_left_mouse = False
-        self.is_wheel_down = False
-        self.is_reload = False
-        self.score = 0
 
         self._load_font()
         self._load_images()
