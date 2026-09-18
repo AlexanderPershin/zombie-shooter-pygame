@@ -121,7 +121,6 @@ class GameScene(AbstractScene):
 
         self.score = 0
         self.level_index = 0
-        self.level_flash = 0
 
         self.player = None
 
@@ -347,9 +346,6 @@ class GameScene(AbstractScene):
             if not self.world_bounds.colliderect(bullet):
                 bullet.kill()
 
-        if self.level_flash > 0:
-            self.level_flash -= dt
-
     def _spawn_items(self, pos: pygame.Vector2) -> None:
         guess = random.randint(1, 10)
 
@@ -407,7 +403,6 @@ class GameScene(AbstractScene):
         if do_reset:
             self.score = 0
             self.level_index = 0
-            self.level_flash = 1.5
             self.mobs_number = self.level_config["enemies_count"]
 
             self.ui.flash_message(f"LEVEL {self.level_number}")
