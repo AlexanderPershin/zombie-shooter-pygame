@@ -391,8 +391,6 @@ class GameScene(AbstractScene):
 
         self.ui_sprites.draw(surf)
 
-        pygame.display.flip()
-
     def on_enter(self, *args, do_reset: bool = True, **kwargs) -> None:
         pygame.mixer.music.stop()
         pygame.mixer.music.load("sounds/theme.wav")
